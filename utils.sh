@@ -298,7 +298,9 @@ get_patch_last_supported_ver() {
 			return
 		fi
 	fi
-	op=$(java -jar "$cli_jar" list-versions "$patches_jar" -f "$pkg_name" 2>&1 | tail -n +3 | awk '{$1=$1}1')
+	
+	op=$(java -jar "$cli_jar" list-versions "$patches_jar" -f "$pkg_name" 2>&1 | awk '{$1=$1}1' | grep -E '^([0-9]+|Any)' || true)
+	
 	if [ "$op" = "Any" ]; then return; fi
 	pcount=$(head -1 <<<"$op") pcount=${pcount#*(} pcount=${pcount% *}
 	if [ -z "$pcount" ]; then
@@ -539,7 +541,7 @@ get_github_release_pkg_name() {
 
 get_github_release_vers() {
 	local assets=$(echo "$__GITHUB_RELEASE_RESP__" | jq -r '.assets[].name')
-	echo "$assets" | grep -oP '(\d+\.\d+\.\d+)' | sort -Vu
+	echo "$assets" | grep -oP '(\d+\.\d+\.\d+)' | sort -Vu || true
 }
 
 dl_github_release() {
