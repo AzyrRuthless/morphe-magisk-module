@@ -24,7 +24,7 @@ toml_get_table_main() { jq -r -e 'to_entries | map(select(.value | type != "obje
 toml_get_table() { jq -r -e ".\"${1}\"" <<<"$__TOML__"; }
 toml_get() {
 	local op quote_placeholder=$'\001'
-	op=$(jq -r ".\"${2}\" | values" <<<"$1")
+	op=$(jq -r ".\"${2}\" | values" <<<"$1" 2>/dev/null || true)
 	if [ "$op" ]; then
 		op="${op#"${op%%[![:space:]]*}"}"
 		op="${op%"${op##*[![:space:]]}"}"
@@ -48,9 +48,10 @@ wpr() {
 abort() {
 	epr "ABORT: ${1-}"
 	rm -rf ./${TEMP_DIR}/*tmp.* ./${TEMP_DIR}/*/*tmp.* ./${TEMP_DIR}/*-temporary-files
-	kill -n 9 0
+	exit 1
 }
-java() { env -i java --enable-native-access=ALL-UNNAMED "$@"; }
+
+java() { command java --enable-native-access=ALL-UNNAMED "$@"; }
 
 get_prebuilts() {
 	local cli_src=$1 cli_ver=$2 patches_src=$3 patches_ver=$4
@@ -111,7 +112,9 @@ get_prebuilts() {
 				epr "More than 1 asset was found for this release. Falling back to the first one found..."
 			fi
 			asset=$(jq -r ".[0]" <<<"$matches")
+			
 			url=$(jq -r .url <<<"$asset")
+			
 			name=$(jq -r .name <<<"$asset")
 			file="${dir}/${name}"
 			gh_dl "$file" "$url" >&2 || return 1
@@ -135,12 +138,17 @@ get_prebuilts() {
 			if [ $grab_cl = true ]; then echo -e "[Changelog](https://github.com/${src}/releases/tag/${tag_name})\n" >>"${cl_dir}/changelog.md"; fi
 			if [ "$REMOVE_RV_INTEGRATIONS_CHECKS" = true ]; then
 				local extensions_ext
-				extensions_ext=$(unzip -l "${file}" "extensions/shared.*" | grep -o "shared\..*") extensions_ext="${extensions_ext#*.}"
+				extensions_ext=$(unzip -l "${file}" "extensions/shared.*" 2>/dev/null | grep -o "shared\..*" || true)
+				extensions_ext="${extensions_ext#*.}"
+				if [ -z "$extensions_ext" ]; then extensions_ext="${ext%p}e"; fi
+				
 				if ! (
 					mkdir -p "${file}-zip" || return 1
 					unzip -qo "${file}" -d "${file}-zip" || return 1
-					java -cp "${BIN_DIR}/paccer.jar:${BIN_DIR}/dexlib2.jar" com.jhc.Main "${file}-zip/extensions/shared.${extensions_ext}" "${file}-zip/extensions/shared-patched.${extensions_ext}" || return 1
-					mv -f "${file}-zip/extensions/shared-patched.${extensions_ext}" "${file}-zip/extensions/shared.${extensions_ext}" || return 1
+					if [ -f "${file}-zip/extensions/shared.${extensions_ext}" ]; then
+						java -cp "${BIN_DIR}/paccer.jar:${BIN_DIR}/dexlib2.jar" com.jhc.Main "${file}-zip/extensions/shared.${extensions_ext}" "${file}-zip/extensions/shared-patched.${extensions_ext}" || return 1
+						mv -f "${file}-zip/extensions/shared-patched.${extensions_ext}" "${file}-zip/extensions/shared.${extensions_ext}" || return 1
+					fi
 					rm "${file}" || return 1
 					cd "${file}-zip" || abort
 					zip -0rq "${CWD}/${file}" . || return 1
