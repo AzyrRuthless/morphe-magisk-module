@@ -1,5 +1,5 @@
-Music (arm64-v8a): 8.51.51  
-Music (arm-v7a): 8.51.51  
+Music (arm64-v8a): 9.15.51  
+Music (arm-v7a): 9.15.51  
 Reddit: 2026.14.0  
 YouTube: 20.51.39  
 
@@ -9,5 +9,5 @@ Use [zygisk-detach](https://github.com/j-hc/zygisk-detach) to detach root Morphe
 [morphe-magisk-module](https://github.com/AzyrRuthless/morphe-magisk-module)
   
 CLI: AzyrRuthless/morphe-cli-1.7.1-all.jar  
-Patches: morpheapp/patches-1.31.0.mpp  
-[Changelog](https://github.com/morpheapp/morphe-patches/releases/tag/v1.31.0)  
+Patches: morpheapp/patches-1.32.0.mpp  
+[Changelog](https://github.com/morpheapp/morphe-patches/releases/tag/v1.32.0)  
