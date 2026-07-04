@@ -1,6 +1,6 @@
 {
   "version": "v9.15.51 (patches 1.33.0.mpp)",
-  "versionCode": 41,
-  "zipUrl": "https://github.com/AzyrRuthless/morphe-magisk-module/releases/download/41/music-morphe-magisk-v9.15.51-arm-v7a.zip",
+  "versionCode": 42,
+  "zipUrl": "https://github.com/AzyrRuthless/morphe-magisk-module/releases/download/42/music-morphe-magisk-v9.15.51-arm-v7a.zip",
   "changelog": "https://raw.githubusercontent.com/AzyrRuthless/morphe-magisk-module/update/build.md"
 }
