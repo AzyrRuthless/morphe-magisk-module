@@ -6,3 +6,7 @@ test*
 /logs
 build.md
 cmpr
+/bin/arm/
+/bin/arm64/
+/bin/x64/
+/bin/x86/
