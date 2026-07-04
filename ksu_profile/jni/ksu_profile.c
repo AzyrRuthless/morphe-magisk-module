@@ -3,6 +3,8 @@
  *
  * This tool interacts with the KernelSU driver via ioctl to manage
  * application profiles and mount namespaces.
+ * 
+ * Authors: AzyrRuthless & j-hc
  */
 
 #define _GNU_SOURCE
@@ -46,6 +48,7 @@ struct root_profile {
 	} capabilities;
 	char selinux_domain[KSU_SELINUX_DOMAIN];
 	int32_t namespaces;
+	uint64_t flags; // Required for KernelSU v3+ driver structure compatibility
 };
 
 struct non_root_profile {
@@ -80,14 +83,6 @@ struct ksu_get_manager_appid_cmd {
 	uint32_t appid;
 };
 
-struct ksu_get_app_profile_cmd {
-	struct app_profile profile;
-};
-
-struct ksu_set_app_profile_cmd {
-	struct app_profile profile;
-};
-
 /* Helper Functions */
 
 /**
@@ -113,11 +108,13 @@ int main(int argc, char *argv[])
 	int ret = 0;
 	struct ksu_uid_should_umount_cmd umount_cmd = { 0 };
 	struct ksu_get_manager_appid_cmd appid_cmd = { 0 };
-	struct ksu_get_app_profile_cmd get_profile_cmd = { 0 };
-	struct ksu_set_app_profile_cmd set_profile_cmd = { 0 };
+	struct app_profile profile = { 0 };
 
 	if (argc <= 2) {
-		fprintf(stderr, "Usage: %s <uid> <pkg name>\n", argv[0]);
+		fprintf(stderr,
+				"ksu_profile (github.com/AzyrRuthless & github.com/j-hc)\n"
+				"Disables \"Unmount modules\" for given package\n"
+				"Usage: %s <uid> <pkg name>\n", argv[0]);
 		return 1;
 	}
 
@@ -159,25 +156,22 @@ int main(int argc, char *argv[])
 	}
 
 	/* 5. Get or Initialize App Profile */
-	get_profile_cmd.profile.current_uid = (int32_t)uid;
-	if (ioctl(fd, KSU_IOCTL_GET_APP_PROFILE, &get_profile_cmd) < 0) {
+	profile.current_uid = (int32_t)uid;
+	if (ioctl(fd, KSU_IOCTL_GET_APP_PROFILE, &profile) < 0) {
 		/* Profile might not exist, initialize a new one */
 		printf("Creating new profile for %s\n", argv[2]);
-		memset(&get_profile_cmd.profile, 0, sizeof(struct app_profile));
-		get_profile_cmd.profile.version = KSU_APP_PROFILE_VER;
-		get_profile_cmd.profile.current_uid = (int32_t)uid;
-		strncpy(get_profile_cmd.profile.key, argv[2], KSU_MAX_PACKAGE_NAME - 1);
+		memset(&profile, 0, sizeof(struct app_profile));
+		profile.version = KSU_APP_PROFILE_VER;
+		profile.current_uid = (int32_t)uid;
+		strncpy(profile.key, argv[2], KSU_MAX_PACKAGE_NAME - 1);
 	}
 
 	/* 6. Modify Profile (Disable module unmounting) */
-	/* Copy retrieved/new profile to set command */
-	set_profile_cmd.profile = get_profile_cmd.profile;
-	
-	set_profile_cmd.profile.nrp_config.use_default = false;
-	set_profile_cmd.profile.nrp_config.profile.umount_modules = false;
+	profile.nrp_config.use_default = false;
+	profile.nrp_config.profile.umount_modules = false;
 
 	/* 7. Apply Profile */
-	if (ioctl(fd, KSU_IOCTL_SET_APP_PROFILE, &set_profile_cmd) < 0) {
+	if (ioctl(fd, KSU_IOCTL_SET_APP_PROFILE, &profile) < 0) {
 		REPORT_ERR("KSU_IOCTL_SET_APP_PROFILE", errno);
 		ret = 1;
 		goto out;
