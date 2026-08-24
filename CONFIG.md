@@ -37,7 +37,7 @@ build-mode = "apk"   # 'both', 'apk' or 'module'. default: apk
 # 'auto' option gets the latest possible version supported by all the included patches
 # 'latest' gets the latest stable without checking patches support. 'beta' gets the latest beta/alpha
 # whitespace seperated list of patches to exclude. default: ""
-version = "auto"     # 'auto', 'latest', 'beta' or a version number (e.g. '17.40.41'). default: auto
+version = "auto"     # 'auto', 'experimental', 'latest' or a version number (e.g. '17.40.41'). default: auto
 
 # optional args to be passed to cli. can be used to set patch options
 # multiline strings in the config is supported
@@ -52,13 +52,16 @@ excluded-patches = """\
   """
 
 included-patches = "'Some Patch'"                          # whitespace seperated list of non-default patches to include. default: ""
-include-stock = true                                       # includes stock apk in the module. default: true
+include-stock = "merged"                                   # 'merged', 'split' or 'disable'. default: merged
 exclusive-patches = false                                  # exclude all patches by default. default: false
+
 apkmirror-dlurl = "https://www.apkmirror.com/apk/inc/app"
 uptodown-dlurl = "https://spotify.en.uptodown.com/android"
+# direct download url. the url must have point to an apk file with name format shown in this example
+direct-dlurl = "https://website/com.google.android.youtube-20.40.45-all.apk"
+
 module-prop-name = "some-app-magisk"                       # magisk module prop name.
-dpi = "360-480dpi"                               # used to select apk variant from apkmirror. default: nodpi
+dpi = "360-480dpi"                                         # used to select apk variant from apkmirror. default: nodpi
 arch = "arm64-v8a"                                         # 'arm64-v8a', 'arm-v7a', 'all', 'both'. 'both' downloads both arm64-v8a and arm-v7a. default: all
 riplib = true                                              # enables ripping x86 and x86_64 libs from apks with morphe cli. default: true
-
 ```

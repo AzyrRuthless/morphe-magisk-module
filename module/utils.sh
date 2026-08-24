@@ -3,6 +3,14 @@
 RVPATH=/data/adb/rvhc/${MODDIR##*/}.apk
 . "$MODDIR/config"
 
+ch_desc() {
+	sed -i "s|^description=.*|description=${1}|" "$MODDIR/module.prop"
+}
+
+ch_desc_err() {
+	ch_desc "⚠️ Needs reflash: '${1}'"
+}
+
 pmex() {
 	OP=$(pm "$@" 2>&1 </dev/null)
 	RET=$?
@@ -38,26 +46,29 @@ get_mounts() {
 
 mount_rv() {
 	if [ ! -d "${1}/lib" ]; then
-		err "mount failed. Dont report this, consider using rvmm-zygisk-mount"
+		ch_desc_err "Your installation got broken. Dont report this, consider using rvmm-zygisk-mount."
 		return 1
 	fi
 	VERSION=$(get_app_version)
 	if [ "$VERSION" != "$PKG_VER" ] && [ "$VERSION" ]; then
-		err "version mismatch (installed:${VERSION}, module:$PKG_VER)"
+		ch_desc_err "Version mismatch (installed:$VERSION, module:$PKG_VER)"
 		return 1
 	fi
 	umount_all
-	if ! chcon u:object_r:apk_data_file:s0 "$RVPATH"; then
-		err "apk not found"
+	if ! OP=$(chcon u:object_r:apk_data_file:s0 "$RVPATH" 2>&1); then
+		ch_desc_err "Error chcon: '$OP'"
 		return 1
 	fi
 	mount -o bind "$RVPATH" "${1}/base.apk"
 	am force-stop "$PKG_NAME"
-	[ -f "$MODDIR/err" ] && mv -f "$MODDIR/err" "$MODDIR/module.prop"
+	cp -f "$MODDIR/module.prop.orig" "$MODDIR/module.prop"
 	return 0
 }
 
-mount_nosleep() {
-	if ! BASEPATH=$(get_basepath); then return 1; fi
+mount_rv_now() {
+	if ! BASEPATH=$(get_basepath); then
+		ch_desc_err "App not installed: '$BASEPATH'"
+		return 1
+	fi
 	mount_rv "$BASEPATH"
 }

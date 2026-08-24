@@ -2,19 +2,19 @@
 
 set -euo pipefail
 shopt -s nullglob
+source utils.sh
+
 trap "abort" INT
 
 if [ "${1-}" = "clean" ]; then
-	rm -rf temp build logs build.md
+	rm -rf "$TEMP_DIR" "$BUILD_DIR" logs build.md
 	exit 0
 fi
 
-source utils.sh
-
-if [ -n "$ANDROID_SDK_ROOT" ] && [ -d "$ANDROID_SDK_ROOT/build-tools" ]; then
+if [ -n "${ANDROID_SDK_ROOT-}" ] && [ -d "$ANDROID_SDK_ROOT/build-tools" ]; then
 	LATEST_BUILD_TOOLS=$(ls -1 "$ANDROID_SDK_ROOT/build-tools" | sort -V | tail -n 1)
 	ZIPALIGN_BIN="$ANDROID_SDK_ROOT/build-tools/$LATEST_BUILD_TOOLS/zipalign"
-elif [ -n "$ANDROID_HOME" ] && [ -d "$ANDROID_HOME/build-tools" ]; then
+elif [ -n "${ANDROID_HOME-}" ] && [ -d "$ANDROID_HOME/build-tools" ]; then
 	LATEST_BUILD_TOOLS=$(ls -1 "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)
 	ZIPALIGN_BIN="$ANDROID_HOME/build-tools/$LATEST_BUILD_TOOLS/zipalign"
 else
@@ -23,7 +23,7 @@ fi
 echo "Using zipalign: $ZIPALIGN_BIN" >&2
 
 jq --version >/dev/null || abort "\`jq\` is not installed. install it with 'apt install jq' or equivalent"
-java --version >/dev/null || abort "\`openjdk 17+\` is not installed. install it with 'apt install openjdk-21-jre' or equivalent"
+java --version >/dev/null || abort "\`java\` is not installed. install it with 'apt install openjdk-21-jre' or equivalent"
 zip --version >/dev/null || abort "\`zip\` is not installed. install it with 'apt install zip' or equivalent"
 command -v zipalign >/dev/null || abort "\`zipalign\` is not installed. install it with 'apt install zipalign' or equivalent"
 
@@ -38,6 +38,7 @@ COMPRESSION_LEVEL=$(toml_get "$main_config_t" compression-level) || COMPRESSION_
 if ! PARALLEL_JOBS=$(toml_get "$main_config_t" parallel-jobs); then
 	if [ "$OS" = Android ]; then PARALLEL_JOBS=1; else PARALLEL_JOBS=$(nproc); fi
 fi
+PARALLEL_JOBS=1 # TODO: multiple jobs were broken by recent cli versions. and i cant bother to fix it so instead, i disable it.
 REMOVE_RV_INTEGRATIONS_CHECKS=$(toml_get "$main_config_t" remove-rv-integrations-checks) || REMOVE_RV_INTEGRATIONS_CHECKS="true"
 DEF_PATCHES_VER=$(toml_get "$main_config_t" patches-version) || DEF_PATCHES_VER="latest"
 DEF_CLI_VER=$(toml_get "$main_config_t" cli-version) || DEF_CLI_VER="latest"
@@ -60,9 +61,9 @@ if [ "$ENABLE_MODULE_UPDATE" = true ] && [ -z "${GITHUB_REPOSITORY-}" ]; then
 fi
 if ((COMPRESSION_LEVEL > 9)) || ((COMPRESSION_LEVEL < 0)); then abort "compression-level must be within 0-9"; fi
 
-rm -rf morphe-magisk/bin/*/tmp.*
+rm -rf ${MODULE_TEMPLATE_DIR}/bin/*/tmp.*
 for file in "$TEMP_DIR"/*/changelog.md; do
-	[ -f "$file" ] && : > "$file"
+	[ -f "$file" ] && : >"$file"
 done
 
 mkdir -p ${MODULE_TEMPLATE_DIR}/bin/arm64 ${MODULE_TEMPLATE_DIR}/bin/arm ${MODULE_TEMPLATE_DIR}/bin/x86 ${MODULE_TEMPLATE_DIR}/bin/x64
@@ -71,7 +72,6 @@ gh_dl "${MODULE_TEMPLATE_DIR}/bin/arm/cmpr" "https://github.com/j-hc/cmpr/releas
 gh_dl "${MODULE_TEMPLATE_DIR}/bin/x86/cmpr" "https://github.com/j-hc/cmpr/releases/latest/download/cmpr-x86"
 gh_dl "${MODULE_TEMPLATE_DIR}/bin/x64/cmpr" "https://github.com/j-hc/cmpr/releases/latest/download/cmpr-x86_64"
 
-declare -A cliriplib
 idx=0
 for table_name in $(toml_get_table_names); do
 	if [ -z "$table_name" ]; then continue; fi
@@ -94,21 +94,12 @@ for table_name in $(toml_get_table_names); do
 	cli_ver=$(toml_get "$t" cli-version) || cli_ver=$DEF_CLI_VER
 
 	if ! PREBUILTS="$(get_prebuilts "$cli_src" "$cli_ver" "$patches_src" "$patches_ver")"; then
-		abort "could not download rv prebuilts"
+		epr "Could not get prebuilts"
+		continue
 	fi
-	read -r cli_jar patches_jar <<<"$PREBUILTS"
+	read -r patches_jar cli_jar <<<"$PREBUILTS"
 	app_args[cli]=$cli_jar
 	app_args[ptjar]=$patches_jar
-	if [[ -v cliriplib[${app_args[cli]}] ]]; then app_args[riplib]=${cliriplib[${app_args[cli]}]}; else
-		if [[ $(java -jar "${app_args[cli]}" patch 2>&1) == *rip-lib* ]]; then
-			cliriplib[${app_args[cli]}]=true
-			app_args[riplib]=true
-		else
-			cliriplib[${app_args[cli]}]=false
-			app_args[riplib]=false
-		fi
-	fi
-	if [ "${app_args[riplib]}" = "true" ] && [ "$(toml_get "$t" riplib)" = "false" ]; then app_args[riplib]=false; fi
 	app_args[rv_brand]=$(toml_get "$t" rv-brand) || app_args[rv_brand]=$DEF_RV_BRAND
 
 	app_args[excluded_patches]=$(toml_get "$t" excluded-patches) || app_args[excluded_patches]=""
@@ -126,6 +117,16 @@ for table_name in $(toml_get_table_names); do
 		fi
 	} || app_args[build_mode]=apk
 
+	app_args[include_stock]=$(toml_get "$t" include-stock) || app_args[include_stock]=merged
+	if [ "${app_args[include_stock]}" = "true" ]; then
+		app_args[include_stock]="merged"
+	elif [ "${app_args[include_stock]}" = "false" ]; then
+		app_args[include_stock]="disable"
+	fi
+	if ! isoneof "${app_args[include_stock]}" disable merged split; then
+		abort "ERROR: include-stock '${app_args[include_stock]}' is not a valid option for '${table_name}': only 'disable', 'merged', 'split', true, or false is allowed"
+	fi
+
 	for dl_from in "${DL_SRCS[@]}"; do
 		if app_args[${dl_from}_dlurl]=$(toml_get "$t" "${dl_from//_/-}-dlurl"); then
 			app_args[${dl_from}_dlurl]=${app_args[${dl_from}_dlurl]%/}
@@ -141,16 +142,6 @@ for table_name in $(toml_get_table_names); do
 	app_args[arch]=$(toml_get "$t" arch) || app_args[arch]="all"
 	if ! isoneof "${app_args[arch]}" "both" "all" "arm64-v8a" "arm-v7a" "x86_64" "x86"; then
 		abort "wrong arch '${app_args[arch]}' for '$table_name'"
-	fi
-
-	app_args[include_stock]=$(toml_get "$t" include-stock) || app_args[include_stock]=merged
-	if [ "${app_args[include_stock]}" = "true" ]; then
-		app_args[include_stock]="merged"
-	elif [ "${app_args[include_stock]}" = "false" ]; then
-		app_args[include_stock]="disable"
-	fi
-	if ! isoneof "${app_args[include_stock]}" disable merged split; then
-		abort "ERROR: include-stock '${app_args[include_stock]}' is not a valid option for '${table_name}': only 'disable', 'merged', 'split', true, or false is allowed"
 	fi
 
 	app_args[pkg_name]=$(toml_get "$t" pkg-name) || app_args[pkg_name]=""
@@ -186,7 +177,7 @@ for table_name in $(toml_get_table_names); do
 	fi
 done
 wait
-rm -rf temp/tmp.*
+_clean_tmp
 if [ -z "$(ls -A1 "${BUILD_DIR}")" ]; then abort "All builds failed."; fi
 
 log "\nInstall [Microg](https://github.com/MorpheApp/MicroG-RE/releases) for non-root YouTube and YT Music APKs"
