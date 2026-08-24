@@ -666,7 +666,7 @@ patch_apk() {
 	local tmp_files
 	tmp_files="$(pwd)/$(mktemp -d -p "$TEMP_DIR")"
 
-	local cmd="env -u GITHUB_REPOSITORY java -jar '$cli_jar' patch '$stock_input' --purge -o '$patched_apk' -p '$patches_jar' --custom-zipalign-binary \"$ZIPALIGN_BIN\" -t '$tmp_files' $patcher_args"
+	local cmd="env -u GITHUB_REPOSITORY java -jar '$cli_jar' patch '$stock_input' -o '$patched_apk' -p '$patches_jar' -t '$tmp_files' $patcher_args"
 
 	# TODO: remove this later
 	local cli_name
@@ -865,12 +865,7 @@ build_rv() {
 			fi
 		fi
 
-		if [ "${args[riplib]-}" = true ]; then
-			patcher_args+=("--rip-lib x86_64 --rip-lib x86")
-			if [ "$build_mode" = module ]; then
-				patcher_args+=("--rip-lib arm64-v8a --rip-lib armeabi-v7a")
-			fi
-		fi
+
 
 		local stock_apk_to_patch="${stock_apk}.stripped.apk"
 		cp -f "$stock_apk" "$stock_apk_to_patch"
