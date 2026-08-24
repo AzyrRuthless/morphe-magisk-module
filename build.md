@@ -8,7 +8,7 @@ Use [zygisk-detach](https://github.com/j-hc/zygisk-detach) to detach root Morphe
 
 [morphe-magisk-module](https://github.com/AzyrRuthless/morphe-magisk-module)
   
-Patches: MorpheApp/patches-1.39.1.mpp  
-[Changelog](https://github.com/MorpheApp/morphe-patches/releases/tag/v1.39.1)
+Patches: MorpheApp/patches-1.40.0.mpp  
+[Changelog](https://github.com/MorpheApp/morphe-patches/releases/tag/v1.40.0)
 
 CLI: MorpheApp/morphe-desktop-1.13.2-all.jar    
