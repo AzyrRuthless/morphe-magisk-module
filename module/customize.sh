@@ -166,7 +166,15 @@ ui_print "* Mounting $PKG_NAME"
 mkdir -p "/data/adb/rvhc"
 mv -f "$MODPATH/base.apk" "$RVPATH"
 
-if ! op=$(su -M -c mount -o bind "$RVPATH" "$BASEPATH/base.apk" 2>&1); then
+if has_nomount; then
+	"$NM_BIN" rule del "$BASEPATH/base.apk" >/dev/null 2>&1
+	if ! op=$("$NM_BIN" rule add "$BASEPATH/base.apk" "$RVPATH" 2>&1); then
+		if ! op=$(su -M -c mount -o bind "$RVPATH" "$BASEPATH/base.apk" 2>&1); then
+			ui_print "ERROR: Mount failed!"
+			ui_print "$op"
+		fi
+	fi
+elif ! op=$(su -M -c mount -o bind "$RVPATH" "$BASEPATH/base.apk" 2>&1); then
 	ui_print "ERROR: Mount failed!"
 	ui_print "$op"
 fi

@@ -1,6 +1,7 @@
 #!/system/bin/sh
 
 RVPATH=/data/adb/rvhc/${MODDIR##*/}.apk
+NM_BIN=/data/adb/modules/nomount/bin/nm
 . "$MODDIR/config"
 
 ch_desc() {
@@ -32,16 +33,33 @@ get_basepath() {
 	return $SVCL
 }
 
+has_nomount() {
+	[ -x "$NM_BIN" ] &&
+		[ ! -f "/data/adb/modules/nomount/disable" ] &&
+		[ ! -f "/data/adb/modules/nomount/remove" ] &&
+		[ ! -f "/data/adb/nomount/disable" ] &&
+		"$NM_BIN" version >/dev/null 2>&1
+}
+
 umount_all() {
 	su -M -c grep -F "$PKG_NAME" /proc/mounts | while read -r line; do
 		mp=${line#* } mp=${mp%% *} mp=${mp%%\\*}
 		su -M -c umount -l "${mp}"
 	done
+	if [ -x "$NM_BIN" ]; then
+		"$NM_BIN" rule list 2>/dev/null | grep -F "$PKG_NAME" | while read -r line; do
+			vp=${line%% ->*}
+			"$NM_BIN" rule del "$vp" >/dev/null 2>&1 || :
+		done
+	fi
 	am force-stop "$PKG_NAME" || :
 }
 
 get_mounts() {
 	su -M -c grep -F "$PKG_NAME" /proc/mounts || :
+	if [ -x "$NM_BIN" ]; then
+		"$NM_BIN" rule list 2>/dev/null | grep -F "$PKG_NAME" || :
+	fi
 }
 
 mount_rv() {
@@ -59,7 +77,14 @@ mount_rv() {
 		ch_desc_err "Error chcon: '$OP'"
 		return 1
 	fi
-	mount -o bind "$RVPATH" "${1}/base.apk"
+	if has_nomount; then
+		"$NM_BIN" rule del "${1}/base.apk" >/dev/null 2>&1
+		if ! "$NM_BIN" rule add "${1}/base.apk" "$RVPATH" >/dev/null 2>&1; then
+			mount -o bind "$RVPATH" "${1}/base.apk"
+		fi
+	else
+		mount -o bind "$RVPATH" "${1}/base.apk"
+	fi
 	am force-stop "$PKG_NAME"
 	cp -f "$MODDIR/module.prop.orig" "$MODDIR/module.prop"
 	return 0
