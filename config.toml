@@ -2,13 +2,14 @@ enable-module-update = true # set this to false if you do not want to receive up
 parallel-jobs = 1
 
 # add 'enabled = false' for not patching a specific app or remove it from the config
-# see https://github.com/j-hc/revanced-magisk-module/blob/main/CONFIG.md for more detailed explanations
+# see https://github.com/AzyrRuthless/morphe-magisk-module/blob/main/CONFIG.md for more detailed explanations
 
 # you can use rvmm-config-gen to generate a config
 
 [YouTube-Morphe]
 app-name = "YouTube"
 build-mode = "both"
+github-release-dlurl = "https://github.com/AzyrRuthless/YTYTM-APK/releases/latest"
 apkmirror-dlurl = "https://www.apkmirror.com/apk/google-inc/youtube"
 archive-dlurl = "https://archive.org/download/jhc-apks/apks/com.google.android.youtube"
 enable-update-checks = true
@@ -17,19 +18,21 @@ enable-update-checks = true
 app-name = "Music"
 build-mode = "both"
 arch = "both"
+github-release-dlurl = "https://github.com/AzyrRuthless/YTYTM-APK/releases/latest"
 apkmirror-dlurl = "https://www.apkmirror.com/apk/google-inc/youtube-music"
 archive-dlurl = "https://archive.org/download/jhc-apks/apks/com.google.android.apps.youtube.music"
 enable-update-checks = true
 
 [Reddit-Morphe]
 app-name = "Reddit"
-build-mode = "apk"
+build-mode = "both"
 apkmirror-dlurl = "https://www.apkmirror.com/apk/redditinc/reddit/"
 archive-dlurl = "https://archive.org/download/jhc-apks/apks/com.reddit.frontpage"
 dpi = "120-640dpi"
 enable-update-checks = true
 
 [GooglePhotos]
+enabled = false
 build-mode = "both"
 patches-source = "RookieEnough/De-Vanced"
 rv-brand = "DeVanced"
@@ -38,6 +41,7 @@ archive-dlurl = "https://archive.org/download/jhc-apks/apks/com.google.android.a
 enable-update-checks = true
 
 [Twitter]
+enabled = false
 patches-source = "crimera/piko-newx"
 rv-brand = "Piko"
 archive-dlurl = "https://archive.org/download/jhc-apks/apks/com.twitter.android"

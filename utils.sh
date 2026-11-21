@@ -5,7 +5,7 @@ CWD=$(pwd)
 TEMP_DIR="temp"
 BIN_DIR="bin"
 BUILD_DIR="build"
-DL_SRCS=("direct" "archive" "apkmirror")
+DL_SRCS=("github_release" "direct" "archive" "apkmirror")
 
 if [ "${GITHUB_TOKEN-}" ]; then GH_HEADER="Authorization: token ${GITHUB_TOKEN}"; else GH_HEADER=; fi
 NEXT_VER_CODE=${NEXT_VER_CODE:-$(date +'%Y%m%d')}
@@ -24,7 +24,7 @@ toml_get_table_main() { jq -r -e 'to_entries | map(select(.value | type != "obje
 toml_get_table() { jq -r -e ".\"${1}\"" <<<"$__TOML__"; }
 toml_get() {
 	local op quote_placeholder=$'\001'
-	op=$(jq -r ".\"${2}\" | values" <<<"$1")
+	op=$(jq -r ".\"${2}\" | values" <<<"$1" 2>/dev/null || true)
 	if [ "$op" ]; then
 		op="${op#"${op%%[![:space:]]*}"}"
 		op="${op%"${op##*[![:space:]]}"}"
@@ -149,16 +149,22 @@ get_prebuilts() {
 			if [ "$grab_cl" = "true" ]; then echo -e "[Changelog](https://github.com/${src}/releases/tag/${tag_name})\n" >>"${cl_dir}/changelog.md"; fi
 			if [ "$REMOVE_RV_INTEGRATIONS_CHECKS" = "true" ]; then
 				local extensions_ext
-				extensions_ext=$(unzip -l "${file}" "extensions/shared.*" | grep -o "shared\..*") extensions_ext="${extensions_ext#*.}"
-				(
+				extensions_ext=$(unzip -l "${file}" "extensions/shared.*" 2>/dev/null | grep -o "shared\..*" || true)
+				extensions_ext="${extensions_ext#*.}"
+				if [ -z "$extensions_ext" ]; then extensions_ext="mpe"; fi
+				if ! (
 					mkdir -p "${file}-zip" || return 1
 					unzip -qo "${file}" -d "${file}-zip" || return 1
-					java -cp "${BIN_DIR}/paccer.jar:${BIN_DIR}/dexlib2.jar" com.jhc.Main "${file}-zip/extensions/shared.${extensions_ext}" "${file}-zip/extensions/shared-patched.${extensions_ext}" || return 1
-					mv -f "${file}-zip/extensions/shared-patched.${extensions_ext}" "${file}-zip/extensions/shared.${extensions_ext}" || return 1
+					if [ -f "${file}-zip/extensions/shared.${extensions_ext}" ]; then
+						java -cp "${BIN_DIR}/paccer.jar:${BIN_DIR}/dexlib2.jar" com.jhc.Main "${file}-zip/extensions/shared.${extensions_ext}" "${file}-zip/extensions/shared-patched.${extensions_ext}" || return 1
+						mv -f "${file}-zip/extensions/shared-patched.${extensions_ext}" "${file}-zip/extensions/shared.${extensions_ext}" || return 1
+					fi
 					rm "${file}" || return 1
 					cd "${file}-zip" || abort
 					zip -0rq "${CWD}/${file}" . || return 1
-				) >&2
+				) >&2; then
+					echo >&2 "Patching morphe-integrations failed"
+				fi
 				rm -r "${file}-zip" || :
 			fi
 		fi
@@ -251,7 +257,21 @@ _req() {
 		mv -f "$dlp" "$op"
 	fi
 }
-req() { _req "$1" "$2" -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:108.0) Gecko/20100101 Firefox/108.0"; }
+req() {
+	local url="$1" out="$2"
+	shift 2
+	_req "$url" "$out" \
+		-H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36" \
+		-H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
+		-H "Accept-Language: en-US,en;q=0.5" \
+		-H "Sec-Fetch-Dest: document" \
+		-H "Sec-Fetch-Mode: navigate" \
+		-H "Sec-Fetch-Site: none" \
+		-H "Sec-Fetch-User: ?1" \
+		-H "Upgrade-Insecure-Requests: 1" \
+		--compressed \
+		"$@"
+}
 gh_req() { _req "$1" "$2" -H "$GH_HEADER"; }
 gh_dl() {
 	if [ ! -f "$1" ]; then
@@ -562,6 +582,73 @@ get_archive_resp() {
 get_archive_vers() { sed 's/^[^-]*-//;s/-\(all\|arm64-v8a\|arm-v7a\)\.\(apk\|apkm\)//g' <<<"$__ARCHIVE_RESP__"; }
 get_archive_pkg_name() { echo "$__ARCHIVE_PKG_NAME__"; }
 
+# -------------------- github release --------------------
+get_github_release_resp() {
+	local url="$1"
+	local repo=${url#*github.com/}
+	repo=${repo%/releases/*}
+	__GITHUB_RELEASE_REPO__="$repo"
+	__GITHUB_RELEASE_RESP__=$(gh_req "https://api.github.com/repos/$repo/releases/latest" -) || return 1
+}
+
+get_github_release_pkg_name() {
+	local assets target_app pkg_guess
+	assets=$(echo "$__GITHUB_RELEASE_RESP__" | jq -r '.assets[].name')
+	target_app="${TARGET_APP_NAME,,}"
+
+	for asset in $assets; do
+		pkg_guess=$(echo "$asset" | sed -E 's/(-|[0-9]).*//')
+		if [[ "$pkg_guess" == *.* ]]; then
+			if [[ "$target_app" == "youtube" ]]; then
+				if [[ "$pkg_guess" == *"youtube"* && "$pkg_guess" != *"music"* ]]; then
+					echo "$pkg_guess"
+					return
+				fi
+			elif [[ "$pkg_guess" == *"$target_app"* ]]; then
+				echo "$pkg_guess"
+				return
+			fi
+		fi
+	done
+	return 1
+}
+
+get_github_release_vers() {
+	local assets
+	assets=$(echo "$__GITHUB_RELEASE_RESP__" | jq -r '.assets[].name')
+	echo "$assets" | grep -oP '(\d+\.\d+\.\d+)' | sort -Vu || true
+}
+
+dl_github_release() {
+	local url=$1 version=$2 output=$3 arch=$4 dpi=$5
+	local download_url ver_clean arch_clean
+
+	ver_clean=${version// /}
+	ver_clean=${ver_clean#v}
+
+	if [ "$arch" = "arm64-v8a" ]; then
+		arch_clean="arm64-v8a"
+	elif [ "$arch" = "arm-v7a" ] || [ "$arch" = "armeabi-v7a" ]; then
+		arch_clean="arm-v7a"
+	else
+		arch_clean="all"
+	fi
+
+	download_url=$(echo "$__GITHUB_RELEASE_RESP__" | jq -r --arg v "$ver_clean" --arg a "$arch_clean" '
+		.assets[] | 
+		select(.name | contains($v)) | 
+		select(.name | contains($a)) | 
+		.browser_download_url' | head -n 1)
+
+	if [ -n "$download_url" ] && [ "$download_url" != "null" ]; then
+		pr "Found GitHub asset for $arch ($arch_clean): $download_url"
+		req "$download_url" "$output"
+		return 0
+	fi
+	return 1
+}
+# --------------------------------------------------
+
 # -------------------- direct --------------------
 dl_direct() {
 	local url=$1 version=${2// /-} output=$3 arch=$4 _dpi=$5
@@ -586,8 +673,7 @@ patch_apk() {
 	local tmp_files
 	tmp_files="$(pwd)/$(mktemp -d -p "$TEMP_DIR")"
 
-	local cmd="java -jar '$cli_jar' patch '$stock_input' -o '$patched_apk' -p '$patches_jar' --keystore=ks.keystore \
---keystore-entry-password=123456789 --keystore-password=123456789 --signer=jhc --keystore-entry-alias=jhc -t '$tmp_files' $patcher_args"
+	local cmd="env -u GITHUB_REPOSITORY java -jar '$cli_jar' patch '$stock_input' -o '$patched_apk' -p '$patches_jar' -t '$tmp_files' $patcher_args"
 
 	# TODO: remove this later
 	local cli_name
@@ -616,6 +702,33 @@ check_sig() {
 
 build_rv() {
 	eval "declare -A args=${1#*=}"
+
+	local ks_file="ks.keystore"
+	local ks_alias="jhc"
+	local ks_pass="123456789"
+	local needs_gen=false
+
+	if [ ! -f "$ks_file" ]; then
+		needs_gen=true
+	elif ! keytool -list -v -keystore "$ks_file" -storepass "$ks_pass" 2>&1 | grep -q "Keystore type: PKCS12"; then
+		pr "Existing keystore is invalid or not PKCS12. Regenerating..."
+		needs_gen=true
+	fi
+
+	if [ "$needs_gen" = true ]; then
+		rm -f "$ks_file"
+		pr "Generating fallback keystore (PKCS12)..."
+
+		keytool -genkeypair -v -keystore "$ks_file" -alias "$ks_alias" \
+			-storetype PKCS12 \
+			-keyalg RSA -keysize 2048 -validity 10000 \
+			-storepass "$ks_pass" -keypass "$ks_pass" \
+			-dname "CN=Morphe User, OU=Morphe Project, O=OpenSource, L=Jakarta, C=ID" \
+			>/dev/null 2>&1
+
+		if [ $? -ne 0 ]; then abort "Failed to generate fallback keystore!"; fi
+	fi
+
 	local version="" pkg_name=""
 	local mode_arg=${args[build_mode]} version_mode=${args[version]}
 	local app_name=${args[app_name]}
@@ -625,6 +738,8 @@ build_rv() {
 	local dl_from=${args[dl_from]}
 	local arch=${args[arch]}
 	local arch_f="${arch// /}"
+
+	export TARGET_APP_NAME="${args[app_name]}"
 
 	local p_patcher_args=()
 	if [ "${args[excluded_patches]}" ]; then p_patcher_args+=("$(join_args "${args[excluded_patches]}" -d)"); fi
@@ -756,8 +871,9 @@ build_rv() {
 	rv_brand_f=${rv_brand_f// /-}
 	for build_mode in "${build_mode_arr[@]}"; do
 		patcher_args=("${p_patcher_args[@]}")
+		patcher_args+=("--unsigned")
 		pr "Building '${table}' in '$build_mode' mode"
-		if [ -n "$microg_patch" ]; then
+		if [ -n "$microg_patch" ] || [ -f "${stock_apk}.apkm" ]; then
 			patched_apk="${TEMP_DIR}/${app_name_l}-${rv_brand_f}-${version_f}-${arch_f}-${build_mode}.apk"
 		else
 			patched_apk="${TEMP_DIR}/${app_name_l}-${rv_brand_f}-${version_f}-${arch_f}.apk"
@@ -825,6 +941,32 @@ build_rv() {
 				return 0
 			fi
 		fi
+
+		if command -v zipalign >/dev/null; then
+			pr "Repack Arsc -> Zipalign -> Resign..."
+
+			if unzip -l "$patched_apk" | grep -q "resources.arsc"; then
+				unzip -qo "$patched_apk" "resources.arsc"
+				zip -d "$patched_apk" "resources.arsc" >/dev/null
+				zip -0gq "$patched_apk" "resources.arsc"
+				rm "resources.arsc"
+			fi
+
+			zipalign -p -f 4 "$patched_apk" "$patched_apk.aligned"
+			mv -f "$patched_apk.aligned" "$patched_apk"
+
+			if [ "$build_mode" = "apk" ]; then
+				java -jar "$APKSIGNER" sign \
+					--ks "$ks_file" \
+					--ks-pass "pass:$ks_pass" \
+					--ks-key-alias "$ks_alias" \
+					--key-pass "pass:$ks_pass" \
+					"$patched_apk"
+			fi
+		else
+			epr "WARNING: zipalign not found! APK install will likely fail."
+		fi
+
 		if [ "$build_mode" = apk ]; then
 			if [ "${NORB:-}" != true ] || { [ ! -f "$patched_apk" ] && [ ! -f "$apk_output" ]; }; then
 				mv -f "$patched_apk" "$apk_output"
@@ -903,7 +1045,7 @@ module_prop() {
 name=${2}
 version=v${3}
 versionCode=${NEXT_VER_CODE}
-author=j-hc
+author=AzyrRuthless
 description=${4}" >"${6}/module.prop"
 
 	if [ "$ENABLE_MODULE_UPDATE" = true ]; then echo "updateJson=${5}" >>"${6}/module.prop"; fi
